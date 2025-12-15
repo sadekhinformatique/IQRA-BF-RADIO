@@ -1,0 +1,7 @@
+{
+  "name": "RADIO IQRA BF",
+  "description": "A web-based radio player and prayer times application mimicking the requested mobile experience.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
