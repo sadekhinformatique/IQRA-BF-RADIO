@@ -8,13 +8,13 @@ export const DEFAULT_CONFIG: AppConfig = {
     {
       id: '1',
       title: 'Main Stream (Quran)',
-      url: 'https://stream.zeno.fm/ztmkyozjspltv', // Example stream
+      url: 'https://stream.zeno.fm/ztmkyozjspltv.m3u', // Example stream
       active: true,
     },
     {
       id: '2',
       title: 'Backup Stream 1',
-      url: 'https://stream.zeno.fm/ztmkyozjspltv.m3u', // Example stream
+      url: 'https://stream.zeno.fm/ztmkyozjspltv', // Example stream
       active: true,
     },
     {
