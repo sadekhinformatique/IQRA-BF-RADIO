@@ -29,12 +29,12 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
     setIsLoading(true);
     setError(null);
     if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
-    // Force stop loading after 10 seconds if stream is stuck
+    // Force stop loading after 15 seconds if stream is stuck
     loadingTimeoutRef.current = window.setTimeout(() => {
         setIsLoading(false);
         setError("Stream connection timed out.");
         setIsPlaying(false);
-    }, 10000);
+    }, 15000);
   };
 
   const handleStreamError = useCallback(() => {
@@ -52,6 +52,7 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
     // Reset state when url changes
     setIsPlaying(false);
     clearLoading();
+    setError(null);
 
     const url = config.streamUrl;
     if (!url) {
@@ -61,71 +62,83 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
 
     // Clean up previous HLS
     if (hlsRef.current) {
-      hlsRef.current.destroy();
+      try {
+        hlsRef.current.destroy();
+      } catch (e) {
+        console.error("Error destroying HLS instance", e);
+      }
       hlsRef.current = null;
     }
 
-    const isM3U8 = url.includes('.m3u8') || url.includes('application/vnd.apple.mpegurl');
+    const isM3U8 = url.toLowerCase().includes('.m3u8') || url.toLowerCase().includes('application/vnd.apple.mpegurl');
 
     // 1. Try HLS.js if supported and it looks like HLS
     if (Hls.isSupported() && isM3U8) {
-        const hls = new Hls();
-        hls.loadSource(url);
-        hls.attachMedia(audio);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            // Ready to play, but don't autoplay unless user clicked play
-        });
-        hls.on(Hls.Events.ERROR, function (event, data) {
-            if (data.fatal) {
-              console.error("HLS Fatal Error", data);
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                  hls.startLoad();
-              } else {
-                  handleStreamError();
-              }
-            }
-        });
-        hlsRef.current = hls;
+        try {
+            const hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(audio);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                console.log("HLS Manifest Parsed");
+            });
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                  console.error("HLS Fatal Error", data);
+                  if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                      hls.startLoad();
+                  } else {
+                      handleStreamError();
+                  }
+                }
+            });
+            hlsRef.current = hls;
+        } catch (e) {
+            console.error("Failed to initialize HLS", e);
+            // Fallback to native
+            audio.src = url;
+            audio.load();
+        }
     } 
-    // 2. Native HLS (Safari)
-    else if (audio.canPlayType('application/vnd.apple.mpegurl') && isM3U8) {
-        audio.src = url;
-    }
-    // 3. Standard Audio (MP3/AAC/Ogg)
+    // 2. Native HLS (Safari) or Standard Audio
     else {
+        // For non-HLS or native HLS, just set src
         audio.src = url;
         audio.load();
     }
 
     return () => {
         clearLoading();
+        if (hlsRef.current) {
+            hlsRef.current.destroy();
+            hlsRef.current = null;
+        }
     };
   }, [config.streamUrl, handleStreamError]);
 
-  const togglePlayPause = () => {
+  const togglePlayPause = async () => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-      clearLoading();
-    } else {
-      startLoading();
-      
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise
-            .then(() => {
-                setIsPlaying(true);
-                clearLoading();
-                setError(null);
-            })
-            .catch(error => {
-                console.error("Playback failed:", error);
-                handleStreamError();
-            });
-      }
+    try {
+        if (isPlaying) {
+          audio.pause();
+          setIsPlaying(false);
+          clearLoading();
+        } else {
+          startLoading();
+          
+          // Attempt to play
+          await audio.play();
+          
+          // If successful
+          setIsPlaying(true);
+          clearLoading();
+          setError(null);
+        }
+    } catch (err: any) {
+        console.error("Playback failed:", err);
+        handleStreamError();
+        setError("Unable to play stream. " + (err.message || ""));
     }
   };
 
@@ -172,7 +185,7 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
                  <span>PAUSED</span>
                )}
             </div>
-            {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+            {error && <p className="text-red-400 text-sm mt-2 font-medium bg-red-900/20 py-1 px-3 rounded inline-block">{error}</p>}
         </div>
       </div>
 
@@ -182,9 +195,11 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
             
             {/* Play/Pause Button */}
             <button 
+                type="button"
                 onClick={togglePlayPause}
-                className="w-24 h-24 rounded-full flex items-center justify-center text-white shadow-lg transform transition-transform hover:scale-105 active:scale-95"
-                style={{ backgroundColor: config.primaryColor }}
+                className="w-24 h-24 rounded-full flex items-center justify-center text-white shadow-lg transform transition-transform hover:scale-105 active:scale-95 outline-none focus:ring-4 focus:ring-opacity-30"
+                style={{ backgroundColor: config.primaryColor, boxShadow: `0 0 20px ${config.primaryColor}60` }}
+                aria-label={isPlaying ? "Pause" : "Play"}
             >
                 {isLoading ? (
                     <i className="fa-solid fa-circle-notch fa-spin text-4xl"></i>
@@ -199,7 +214,10 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
 
       <audio 
         ref={audioRef}
-        onError={() => {
+        crossOrigin="anonymous"
+        playsInline
+        onError={(e) => {
+            console.error("Audio Element Error:", e);
             if (!hlsRef.current) handleStreamError();
         }}
         onPlaying={() => {
