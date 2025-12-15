@@ -1,20 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { AppConfig, Stream } from '../types';
+import { AppConfig } from '../types';
 import { saveConfig, resetConfig } from '../services/configService';
 
 interface AdminPanelProps {
   currentConfig: AppConfig;
   onUpdate: (config: AppConfig) => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ currentConfig, onUpdate, onClose }) => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
   const [config, setConfig] = useState<AppConfig>(currentConfig);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setConfig(currentConfig);
   }, [currentConfig]);
+
+  const handleLogin = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (password === "admin") {
+          setIsAuthenticated(true);
+      } else {
+          alert("Incorrect password");
+      }
+  };
 
   const handleSave = () => {
     saveConfig(config);
@@ -31,36 +42,45 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentConfig, onUpdate, onClos
     setTimeout(() => setMessage(null), 3000);
   };
 
-  const handleStreamChange = (index: number, field: keyof Stream, value: any) => {
-    const newStreams = [...config.streams];
-    newStreams[index] = { ...newStreams[index], [field]: value };
-    setConfig({ ...config, streams: newStreams });
-  };
-
-  const addStream = () => {
-    if (config.streams.length >= 3) return;
-    const newStream: Stream = {
-        id: Date.now().toString(),
-        title: "New Stream",
-        url: "",
-        active: false
-    };
-    setConfig({ ...config, streams: [...config.streams, newStream] });
-  };
-
-  const removeStream = (index: number) => {
-    const newStreams = config.streams.filter((_, i) => i !== index);
-    setConfig({ ...config, streams: newStreams });
-  };
+  if (!isAuthenticated) {
+      return (
+        <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white p-4">
+            <div className="w-full max-w-sm bg-gray-800 p-8 rounded-lg shadow-lg">
+                <h2 className="text-2xl font-bold mb-6 text-center">Admin Login</h2>
+                <form onSubmit={handleLogin} className="space-y-4">
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-1">Password</label>
+                        <input 
+                            type="password" 
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white outline-none focus:border-blue-500"
+                            placeholder="Enter password"
+                        />
+                    </div>
+                    <button 
+                        type="submit"
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors"
+                    >
+                        Login
+                    </button>
+                    <div className="text-center mt-4">
+                        <a href="/" className="text-sm text-gray-500 hover:text-gray-300">Back to App</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+      );
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/90 z-50 overflow-y-auto p-4 md:p-10">
+    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-10">
       <div className="max-w-3xl mx-auto bg-gray-800 rounded-lg shadow-2xl overflow-hidden">
         <div className="flex justify-between items-center p-6 bg-gray-700 border-b border-gray-600">
-            <h2 className="text-2xl font-bold text-white">Admin Panel</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-white">
-                <i className="fa-solid fa-xmark text-2xl"></i>
-            </button>
+            <h2 className="text-2xl font-bold text-white">Admin Dashboard</h2>
+            <a href="/" className="text-sm bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-white no-underline">
+                Open App
+            </a>
         </div>
 
         <div className="p-6 space-y-6">
@@ -115,66 +135,28 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ currentConfig, onUpdate, onClos
 
             <hr className="border-gray-700" />
 
-            {/* Streams */}
+            {/* Single Stream Config */}
             <div>
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-semibold text-white">Stream Links (Max 3)</h3>
-                    {config.streams.length < 3 && (
-                        <button 
-                            onClick={addStream}
-                            className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
-                        >
-                            + Add Stream
-                        </button>
-                    )}
-                </div>
-
-                <div className="space-y-4">
-                    {config.streams.map((stream, index) => (
-                        <div key={stream.id} className="bg-gray-900 p-4 rounded border border-gray-700 relative">
-                            <button 
-                                onClick={() => removeStream(index)}
-                                className="absolute top-2 right-2 text-red-400 hover:text-red-300"
-                            >
-                                <i className="fa-solid fa-trash"></i>
-                            </button>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-8">
-                                <div>
-                                    <label className="text-xs text-gray-500">Title</label>
-                                    <input 
-                                        type="text" 
-                                        value={stream.title}
-                                        onChange={(e) => handleStreamChange(index, 'title', e.target.value)}
-                                        className="w-full bg-gray-800 border-none rounded p-1 text-sm text-white"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-gray-500">URL</label>
-                                    <input 
-                                        type="text" 
-                                        value={stream.url}
-                                        onChange={(e) => handleStreamChange(index, 'url', e.target.value)}
-                                        className="w-full bg-gray-800 border-none rounded p-1 text-sm text-white"
-                                    />
-                                </div>
-                            </div>
-                            <div className="mt-2 flex items-center">
-                                <input 
-                                    type="checkbox" 
-                                    checked={stream.active}
-                                    onChange={(e) => handleStreamChange(index, 'active', e.target.checked)}
-                                    className="mr-2"
-                                />
-                                <span className={`text-sm ${stream.active ? 'text-green-400' : 'text-gray-500'}`}>
-                                    {stream.active ? 'Active' : 'Inactive'}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
-                    {config.streams.length === 0 && (
-                        <p className="text-gray-500 italic text-sm">No streams configured.</p>
-                    )}
+                <h3 className="text-lg font-semibold text-white mb-4">Stream Configuration</h3>
+                <div className="bg-gray-900 p-4 rounded border border-gray-700 space-y-4">
+                    <div>
+                        <label className="block text-xs text-gray-500 mb-1">Stream Title</label>
+                        <input 
+                            type="text" 
+                            value={config.streamTitle}
+                            onChange={(e) => setConfig({...config, streamTitle: e.target.value})}
+                            className="w-full bg-gray-800 border-none rounded p-2 text-sm text-white"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs text-gray-500 mb-1">Stream URL (MP3, AAC, m3u8)</label>
+                        <input 
+                            type="text" 
+                            value={config.streamUrl}
+                            onChange={(e) => setConfig({...config, streamUrl: e.target.value})}
+                            className="w-full bg-gray-800 border-none rounded p-2 text-sm text-white"
+                        />
+                    </div>
                 </div>
             </div>
         </div>

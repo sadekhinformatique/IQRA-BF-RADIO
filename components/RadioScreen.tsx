@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { AppConfig, Stream } from '../types';
+import { AppConfig } from '../types';
 import Hls from 'hls.js';
 
 interface RadioScreenProps {
@@ -8,53 +8,56 @@ interface RadioScreenProps {
 
 const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentStreamIndex, setCurrentStreamIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const loadingTimeoutRef = useRef<number | null>(null);
   
-  const activeStreams = config.streams.filter(s => s.active);
-  const currentStream = activeStreams[currentStreamIndex];
-  
-  // Track if playback is intended (for autoplay on stream switch)
-  const shouldPlayRef = useRef(false);
-
-  useEffect(() => {
-    if (activeStreams.length === 0) {
-      setError("No active streams available.");
-    } else {
-      setError(null);
+  // Clear loading state helper
+  const clearLoading = () => {
+    setIsLoading(false);
+    if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
     }
-  }, [activeStreams]);
+  };
 
-  // Error handling / Stream switching logic
+  // Start loading with timeout safety
+  const startLoading = () => {
+    setIsLoading(true);
+    setError(null);
+    if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
+    // Force stop loading after 10 seconds if stream is stuck
+    loadingTimeoutRef.current = window.setTimeout(() => {
+        setIsLoading(false);
+        setError("Stream connection timed out.");
+        setIsPlaying(false);
+    }, 10000);
+  };
+
   const handleStreamError = useCallback(() => {
-    console.warn(`Stream ${currentStream?.title} failed. Trying next...`);
-    
-    if (activeStreams.length > 1) {
-       const nextIndex = (currentStreamIndex + 1) % activeStreams.length;
-       // Prevent infinite loop if all streams fail instantly
-       if (nextIndex !== currentStreamIndex) {
-         setCurrentStreamIndex(nextIndex);
-         shouldPlayRef.current = true; // Try to autoplay next
-       }
-    } else {
-      setError("Stream unavailable. Please try again later.");
-      setIsPlaying(false);
-      setIsLoading(false);
-      shouldPlayRef.current = false;
-    }
-  }, [activeStreams, currentStream, currentStreamIndex]);
+    console.warn("Stream failed.");
+    clearLoading();
+    setIsPlaying(false);
+    setError("Stream unavailable.");
+  }, []);
 
   // Initialize Audio Source (HLS or Standard)
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !currentStream) return;
+    if (!audio) return;
 
-    const url = currentStream.url;
-    setIsLoading(true);
+    // Reset state when url changes
+    setIsPlaying(false);
+    clearLoading();
+
+    const url = config.streamUrl;
+    if (!url) {
+        setError("No stream URL configured.");
+        return;
+    }
 
     // Clean up previous HLS
     if (hlsRef.current) {
@@ -70,20 +73,11 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
         hls.loadSource(url);
         hls.attachMedia(audio);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            setIsLoading(false);
-            if (shouldPlayRef.current) {
-                audio.play()
-                .then(() => setIsPlaying(true))
-                .catch(e => {
-                    console.error("Autoplay failed", e);
-                    setIsPlaying(false);
-                });
-            }
+            // Ready to play, but don't autoplay unless user clicked play
         });
         hls.on(Hls.Events.ERROR, function (event, data) {
             if (data.fatal) {
               console.error("HLS Fatal Error", data);
-              // Try to recover or fail
               if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                   hls.startLoad();
               } else {
@@ -96,36 +90,17 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
     // 2. Native HLS (Safari)
     else if (audio.canPlayType('application/vnd.apple.mpegurl') && isM3U8) {
         audio.src = url;
-        audio.addEventListener('loadedmetadata', () => {
-             setIsLoading(false);
-             if (shouldPlayRef.current) {
-                audio.play()
-                .then(() => setIsPlaying(true))
-                .catch(e => console.error("Autoplay failed", e));
-             }
-        }, { once: true });
     }
     // 3. Standard Audio (MP3/AAC/Ogg)
     else {
         audio.src = url;
         audio.load();
-        // Native audio doesn't always fire 'canplay' for streams reliably until buffering
-        // We set a timeout or wait for events
-        const onCanPlay = () => {
-             setIsLoading(false);
-             if (shouldPlayRef.current) {
-                audio.play()
-                .then(() => setIsPlaying(true))
-                .catch(e => {
-                    // console.error("Autoplay failed", e)
-                    setIsPlaying(false);
-                });
-             }
-        };
-        audio.addEventListener('canplay', onCanPlay, { once: true });
     }
 
-  }, [currentStream, handleStreamError]);
+    return () => {
+        clearLoading();
+    };
+  }, [config.streamUrl, handleStreamError]);
 
   const togglePlayPause = () => {
     const audio = audioRef.current;
@@ -134,38 +109,23 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
     if (isPlaying) {
       audio.pause();
       setIsPlaying(false);
-      shouldPlayRef.current = false;
+      clearLoading();
     } else {
-      setIsLoading(true);
-      shouldPlayRef.current = true;
-      audio.play()
-        .then(() => {
-          setIsPlaying(true);
-          setIsLoading(false);
-          setError(null);
-        })
-        .catch(error => {
-          console.error("Playback failed:", error);
-          setIsPlaying(false);
-          setIsLoading(false);
-          handleStreamError();
-        });
-    }
-  };
-
-  const handleNext = () => {
-    if (activeStreams.length > 0) {
-        setIsPlaying(false);
-        shouldPlayRef.current = true; // Intent to play next
-        setCurrentStreamIndex((prev) => (prev + 1) % activeStreams.length);
-    }
-  };
-
-  const handlePrev = () => {
-    if (activeStreams.length > 0) {
-        setIsPlaying(false);
-        shouldPlayRef.current = true; // Intent to play prev
-        setCurrentStreamIndex((prev) => (prev - 1 + activeStreams.length) % activeStreams.length);
+      startLoading();
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise
+            .then(() => {
+                setIsPlaying(true);
+                clearLoading();
+                setError(null);
+            })
+            .catch(error => {
+                console.error("Playback failed:", error);
+                handleStreamError();
+            });
+      }
     }
   };
 
@@ -200,7 +160,7 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
         {/* Stream Info */}
         <div className="space-y-2">
             <h2 className="text-xl font-semibold text-white">
-                {currentStream ? currentStream.title : "No Stream Selected"}
+                {config.streamTitle}
             </h2>
             <div className="flex items-center justify-center space-x-2 text-sm text-gray-400">
                {isPlaying ? (
@@ -219,46 +179,34 @@ const RadioScreen: React.FC<RadioScreenProps> = ({ config }) => {
       {/* Controls */}
       <div className="z-10 w-full mb-12">
         <div className="flex items-center justify-center space-x-8">
-            <button 
-                onClick={handlePrev}
-                className="p-4 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
-                disabled={activeStreams.length <= 1}
-            >
-                <i className="fa-solid fa-backward-step text-2xl"></i>
-            </button>
-
+            
+            {/* Play/Pause Button */}
             <button 
                 onClick={togglePlayPause}
-                className="w-20 h-20 rounded-full flex items-center justify-center text-white shadow-lg transform transition-transform hover:scale-105 active:scale-95"
+                className="w-24 h-24 rounded-full flex items-center justify-center text-white shadow-lg transform transition-transform hover:scale-105 active:scale-95"
                 style={{ backgroundColor: config.primaryColor }}
             >
                 {isLoading ? (
-                    <i className="fa-solid fa-circle-notch fa-spin text-3xl"></i>
+                    <i className="fa-solid fa-circle-notch fa-spin text-4xl"></i>
                 ) : isPlaying ? (
-                    <i className="fa-solid fa-pause text-3xl"></i>
+                    <i className="fa-solid fa-pause text-4xl"></i>
                 ) : (
-                    <i className="fa-solid fa-play text-3xl pl-1"></i>
+                    <i className="fa-solid fa-play text-4xl pl-2"></i>
                 )}
-            </button>
-
-            <button 
-                onClick={handleNext}
-                className="p-4 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
-                disabled={activeStreams.length <= 1}
-            >
-                <i className="fa-solid fa-forward-step text-2xl"></i>
             </button>
         </div>
       </div>
 
       <audio 
         ref={audioRef}
-        onError={(e) => {
-            // Only handle error if HLS didn't already handle it
-            if (!hlsRef.current) {
-                handleStreamError();
-            }
+        onError={() => {
+            if (!hlsRef.current) handleStreamError();
         }}
+        onPlaying={() => {
+            clearLoading();
+            setIsPlaying(true);
+        }}
+        onPause={() => setIsPlaying(false)}
         preload="none"
       />
     </div>

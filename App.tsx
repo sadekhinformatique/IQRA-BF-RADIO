@@ -8,9 +8,23 @@ import { AppConfig } from './types';
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'radio' | 'prayer'>('radio');
   const [config, setConfig] = useState<AppConfig>(getConfig());
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [isAdminRoute, setIsAdminRoute] = useState(false);
 
-  // Re-read config on mount or when admin updates it
+  // Check URL hash for admin routing
+  useEffect(() => {
+    const handleHashChange = () => {
+      setIsAdminRoute(window.location.hash === '#admin');
+    };
+
+    // Initial check
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Re-read config on mount
   useEffect(() => {
     setConfig(getConfig());
   }, []);
@@ -19,6 +33,17 @@ const App: React.FC = () => {
     setConfig(newConfig);
   };
 
+  // If in Admin Route, render Admin Panel completely separate from Mobile Layout
+  if (isAdminRoute) {
+      return (
+        <AdminPanel 
+            currentConfig={config} 
+            onUpdate={handleConfigUpdate} 
+        />
+      );
+  }
+
+  // Normal Mobile App Layout
   return (
     <div className="w-full h-full max-w-md mx-auto bg-gray-900 shadow-2xl relative overflow-hidden flex flex-col font-sans">
       
@@ -52,24 +77,6 @@ const App: React.FC = () => {
             <span className="text-xs font-medium">Prayer</span>
         </button>
       </div>
-
-      {/* Admin Toggle (Hidden in production or via specific route usually, here just a floating button for demo) */}
-      <button 
-        onClick={() => setShowAdmin(true)}
-        className="absolute top-2 left-2 p-2 text-gray-700 hover:text-white z-50 opacity-20 hover:opacity-100 transition-opacity"
-        title="Open Admin Panel"
-      >
-        <i className="fa-solid fa-gear"></i>
-      </button>
-
-      {/* Admin Panel Overlay */}
-      {showAdmin && (
-        <AdminPanel 
-            currentConfig={config} 
-            onUpdate={handleConfigUpdate} 
-            onClose={() => setShowAdmin(false)} 
-        />
-      )}
     </div>
   );
 };

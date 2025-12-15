@@ -1,15 +1,9 @@
-export interface Stream {
-  id: string;
-  title: string;
-  url: string;
-  active: boolean;
-}
-
 export interface AppConfig {
   radioName: string;
   primaryColor: string; // Hex code
   logoUrl: string;
-  streams: Stream[];
+  streamTitle: string;
+  streamUrl: string;
 }
 
 export interface PrayerTimings {
